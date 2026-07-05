@@ -1,9 +1,5 @@
 /*
- * Surge 融合解锁版（稳定结构）
- */
-
-/*
- * 海角社区 
+ * 海角社区 
  * 解锁付费会员视频
  * 需要Vip2-3权限的视频未解锁
  * 2025-04-04
@@ -15,103 +11,74 @@
 hostname = haijiao.com
 */
 
-var x = $response.body;
-var url = $request.url;
+/*
+ * 海角社区 Surge 融合增强稳定版
+ * 原版主干 + 叠加增强功能
+ */
 
-function decode3(data) {
-  try {
-    return JSON.parse(atob(atob(atob(data))));
-  } catch (e) {
-    return null;
-  }
-}
+(() => {
+  var w;
+  var x = $response.body;
+  var B = $request.url;
 
-function encode3(data) {
-  return btoa(btoa(btoa(JSON.stringify(data))));
-}
+  var z = typeof $httpClient !== "undefined";
+  var A = typeof $task !== "undefined";
 
-function unlock(obj) {
-  if (!obj || typeof obj !== "object") return;
-
-  if (Array.isArray(obj)) {
-    obj.forEach(unlock);
-    return;
+  // =========================
+  // base64（原版逻辑）
+  // =========================
+  function D(H) {
+    return decodeURIComponent(escape(atob(H)));
   }
 
-  if ("is_buy" in obj) obj.is_buy = true;
-  if ("buy_index" in obj) obj.buy_index = 9999;
-  if ("vipLimit" in obj) obj.vipLimit = 0;
-  if ("price" in obj) obj.price = 0;
+  function E(H) {
+    return btoa(unescape(encodeURIComponent(H)));
+  }
 
-  for (let k in obj) {
-    if (typeof obj[k] === "object") {
-      unlock(obj[k]);
+  // =========================
+  // unlock（原版 + 增强）
+  // =========================
+  function unlock(obj) {
+    if (!obj || typeof obj !== "object") return;
+
+    if (Array.isArray(obj)) {
+      obj.forEach(unlock);
+      return;
+    }
+
+    // 原版字段
+    if ("is_buy" in obj) obj.is_buy = true;
+    if ("buy_index" in obj) obj.buy_index = 9999;
+    if ("vipLimit" in obj) obj.vipLimit = 0;
+
+    // 你的增强字段
+    if ("price" in obj) obj.price = 0;
+
+    // sale增强
+    if (obj.sale) {
+      obj.sale.is_buy = true;
+      obj.sale.buy_index = 9999;
+    }
+
+    for (let k in obj) {
+      if (typeof obj[k] === "object") unlock(obj[k]);
     }
   }
-}
-if (url.includes("/api/banner/banner_list")) {
-  try {
-    let w = JSON.parse(x);
-    w.data = "WW01V2MySkJQVDA9";
-    $done({ body: JSON.stringify(w) });
-  } catch (e) {
-    $done({ body: x });
-  }
-  return;
-}
-try {
-  let w = JSON.parse(x);
 
-  if (!w.data) {
-    $done({ body: x });
-    return;
-  }
-
-  if (!url.includes("/api/topic/")) {
-    $done({ body: x });
-    return;
-  }
-
-  // 1. 解密三层 base64
-  let data = decode3(w.data);
-  if (!data) {
-    $done({ body: x });
-    return;
-  }
-
-  // 2. 解锁 VIP 字段（递归）
-  unlock(data);
-
-  // 3. sale 结构补强
-  if (data.sale) {
-    data.sale.is_buy = true;
-    data.sale.buy_index = 9999;
-  }
-let video = null;
-
-  if (data.attachments && Array.isArray(data.attachments)) {
-    video = data.attachments.find(v =>
-      v.category === "video" &&
-      v.remoteUrl &&
-      v.remoteUrl.includes(".m3u8")
-    );
-  }
-
-  if (video && video.remoteUrl) {
-    data._unlocked_video = video.remoteUrl;
-  }
-async function fetchText(u) {
-    if (typeof $task !== "undefined") {
-      let res = await $task.fetch(u);
-      return res.body;
-    } else if (typeof $httpClient !== "undefined") {
-      return new Promise((resolve, reject) => {
-        $httpClient.get(u, (err, resp, body) => {
+  // =========================
+  // m3u8 fallback（你的增强）
+  // =========================
+  function fetchText(url) {
+    return new Promise((resolve, reject) => {
+      if (z) {
+        $httpClient.get(url, (err, resp, body) => {
           if (err) reject(err);
           else resolve(body);
         });
-      });
-    }
+      } else if (A) {
+        $task.fetch(url).then(res => resolve(res.body)).catch(reject);
+      }
+    });
   }
 
   async function fixM3U8(url) {
@@ -120,41 +87,144 @@ async function fetchText(u) {
       const lines = text.split("\n");
 
       let base = url.substring(0, url.lastIndexOf("/") + 1);
-      let tsList = [];
+      let ts = [];
 
       for (let l of lines) {
         if (l && !l.startsWith("#") && l.includes(".ts")) {
-          tsList.push(l.trim());
+          ts.push(l.trim());
         }
       }
 
-      if (!tsList.length) return url;
+      if (!ts.length) return null;
 
       let body = "#EXTM3U\n";
-
-      for (let ts of tsList) {
-        body += "#EXTINF:2,\n" + new URL(ts, base).href + "\n";
+      for (let t of ts) {
+        body += "#EXTINF:2,\n" + new URL(t, base).href + "\n";
       }
 
-      return "data:application/vnd.apple.mpegurl;base64," +
-        btoa(body);
-
+      return "data:application/vnd.apple.mpegurl;base64," + btoa(body);
     } catch (e) {
-      return url;
+      return null;
     }
   }
 
-  if (video && video.remoteUrl) {
-    data._fixed_m3u8 = await fixM3U8(video.remoteUrl);
-  }
-let enc = encode3(data);
+  // =========================
+  // UI注入（你的增强）
+  // =========================
+  function injectUI(P, playUrl) {
+    if (!P || !P.content) return;
 
-  w.data = enc;
+    const encodedUrl = encodeURIComponent(playUrl);
 
-  $done({ body: JSON.stringify(w) });
-  return;
-
-} catch (e) {
-  console.log("fusion error:", e);
-  $done({ body: x });
+    const html = `
+<style>
+#btns{
+  position:fixed;
+  bottom:80px;
+  right:10px;
+  z-index:9999;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
 }
+.btn{
+  background:#4CAF50;
+  color:#fff;
+  padding:10px 14px;
+  border-radius:6px;
+  text-decoration:none;
+  font-size:14px;
+}
+</style>
+
+<div id="btns">
+  <a class="btn" href="${playUrl}">直接播放</a>
+  <a class="btn" href="SenPlayer://x-callback-url/play?url=${encodedUrl}">SenPlayer</a>
+  <a class="btn" href="stay://x-callback-url/open-download?url=${encodedUrl}">下载</a>
+</div>
+`;
+
+    if (P.content.includes("<body>")) {
+      P.content = P.content.replace("<body>", "<body>" + html);
+    } else {
+      P.content = html + P.content;
+    }
+  }
+
+  // =========================
+  // banner分支（原版）
+  // =========================
+  if (B.includes("/api/banner/banner_list")) {
+    try {
+      let w = JSON.parse(x);
+      w.data = "WW01V2MySkJQVDA9";
+      $done({ body: JSON.stringify(w) });
+    } catch (e) {
+      $done({ body: x });
+    }
+    return;
+  }
+
+  // =========================
+  // 主流程（原版保留）
+  // =========================
+  try {
+    w = JSON.parse(x);
+
+    if (!w.data || !B.includes("/api/topic/")) {
+      $done({ body: x });
+      return;
+    }
+
+    // ===== 原版三层解密 =====
+    let data = D(D(D(w.data)));
+    let obj = JSON.parse(data);
+
+    // ===== unlock增强 =====
+    unlock(obj);
+
+    // ===== 视频提取 =====
+    let video = null;
+    if (obj.attachments && Array.isArray(obj.attachments)) {
+      video = obj.attachments.find(v =>
+        v.category === "video" &&
+        v.remoteUrl &&
+        v.remoteUrl.includes(".m3u8")
+      );
+    }
+
+    let url = video ? video.remoteUrl : null;
+
+    // ===== m3u8 fallback增强 =====
+    let fixed = null;
+
+    (async () => {
+      if (url) {
+        try {
+          fixed = await fixM3U8(url);
+        } catch (e) {}
+
+        if (fixed) {
+          obj._fixed_m3u8 = fixed;
+        } else {
+          obj._video_raw = url;
+        }
+      }
+
+      // ===== UI注入 =====
+      try {
+        injectUI(obj, fixed || url);
+      } catch (e) {}
+
+      // ===== 原版三重编码 =====
+      let enc = E(E(E(JSON.stringify(obj))));
+      w.data = enc;
+
+      $done({ body: JSON.stringify(w) });
+    })();
+
+  } catch (e) {
+    console.log("fusion error:", e);
+    $done({ body: x });
+  }
+})();
