@@ -12,158 +12,163 @@ hostname = haijiao.com
 */
 
 /*
- * 海角社区 Surge 融合稳定版 + UI嵌入（原版状态机保持）
+ * 海角社区 Surge 融合稳定版
+ * 原版逻辑 + 原版UI完整保留
  */
 
-var x = $response.body;
-var url = $request.url;
+(() => {
+  var x = $response.body;
+  var url = $request.url;
 
-// =========================
-// base64 三重解密（原版）
-// =========================
-function decode3(data) {
-  try {
-    return JSON.parse(atob(atob(atob(data))));
-  } catch (e) {
-    return null;
+  // ======================
+  // base64（三重原版）
+  // ======================
+  function D(H) {
+    return decodeURIComponent(escape(atob(H)));
   }
-}
 
-function encode3(data) {
-  return btoa(btoa(btoa(JSON.stringify(data))));
-}
+  function E(H) {
+    return btoa(unescape(encodeURIComponent(H)));
+  }
 
-// =========================
-// unlock（原版逻辑保留）
-// =========================
-function unlock(obj) {
-  if (!obj || typeof obj !== "object") return;
+  // ======================
+  // unlock（原版不动）
+  // ======================
+  function unlock(obj) {
+    if (!obj || typeof obj !== "object") return;
 
-  if (Array.isArray(obj)) {
-    obj.forEach(unlock);
+    if (Array.isArray(obj)) {
+      obj.forEach(unlock);
+      return;
+    }
+
+    if ("is_buy" in obj) obj.is_buy = true;
+    if ("buy_index" in obj) obj.buy_index = 9999;
+    if ("vipLimit" in obj) obj.vipLimit = 0;
+    if ("price" in obj) obj.price = 0;
+
+    for (let k in obj) {
+      if (typeof obj[k] === "object") unlock(obj[k]);
+    }
+  }
+
+  // ======================
+  // banner（原版）
+  // ======================
+  if (url.includes("/api/banner/banner_list")) {
+    try {
+      let w = JSON.parse(x);
+      w.data = "WW01V2MySkJQVDA9";
+      $done({ body: JSON.stringify(w) });
+    } catch (e) {
+      $done({ body: x });
+    }
     return;
   }
 
-  if ("is_buy" in obj) obj.is_buy = true;
-  if ("buy_index" in obj) obj.buy_index = 9999;
-  if ("vipLimit" in obj) obj.vipLimit = 0;
-  if ("price" in obj) obj.price = 0;
-
-  for (let k in obj) {
-    if (typeof obj[k] === "object") {
-      unlock(obj[k]);
-    }
-  }
-}
-
-// =========================
-// banner 原版
-// =========================
-if (url.includes("/api/banner/banner_list")) {
   try {
     let w = JSON.parse(x);
-    w.data = "WW01V2MySkJQVDA9";
-    $done({ body: JSON.stringify(w) });
-  } catch (e) {
-    $done({ body: x });
-  }
-  return;
-}
 
-// =========================
-// UI 注入（完全独立，不参与编码）
-// =========================
-function injectUI(obj, videoUrl) {
-  if (!videoUrl) return;
+    if (!w.data || !url.includes("/api/topic/")) {
+      $done({ body: x });
+      return;
+    }
 
-  const encoded = encodeURIComponent(videoUrl);
+    // ======================
+    // 1. 原版解密链（绝对不改）
+    // ======================
+    let data = D(D(D(w.data)));
+    let obj = JSON.parse(data);
 
-  const html = `
+    // ======================
+    // 2. unlock（原版）
+    // ======================
+    unlock(obj);
+
+    if (obj.sale) {
+      obj.sale.is_buy = true;
+      obj.sale.buy_index = 9999;
+    }
+
+    // ======================
+    // 3. 视频提取（原版）
+    // ======================
+    let video = null;
+
+    if (obj.attachments && Array.isArray(obj.attachments)) {
+      video = obj.attachments.find(v =>
+        v.category === "video" &&
+        v.remoteUrl &&
+        v.remoteUrl.includes(".m3u8")
+      );
+    }
+
+    let playUrl = video ? video.remoteUrl : null;
+
+    // ======================
+    // 4. 🔥 原版UI（完整保留 + 修复安全替换）
+    // ======================
+    if (playUrl && obj.content) {
+      const encodedUrl = encodeURIComponent(playUrl);
+
+      const buttonHTML = `
 <style>
-#hj-ui {
+#player-button-group {
   position: fixed;
-  bottom: 80px;
+  bottom: calc(env(safe-area-inset-bottom, 0) + 60px);
   right: 10px;
-  z-index: 99999;
+  z-index: 9999;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  align-items: flex-end;
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
-.hj-btn {
-  background: #4CAF50;
-  color: #fff;
+.player-btn {
   padding: 10px 14px;
-  border-radius: 8px;
-  text-decoration: none;
+  color: white;
+  border-radius: 6px;
   font-size: 14px;
-  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  min-width: 130px;
 }
 </style>
 
-<div id="hj-ui">
-  <a class="hj-btn" href="${videoUrl}">▶ 直接播放</a>
-  <a class="hj-btn" href="SenPlayer://x-callback-url/play?url=${encoded}">SenPlayer</a>
-  <a class="hj-btn" href="stay://x-callback-url/open-download?url=${encoded}">下载</a>
+<div id="player-button-group">
+  <a class="player-btn" style="background:#4CAF50;" href="${playUrl}" target="_blank">立即观看视频</a>
+  <a class="player-btn" style="background:#2196F3;" href="SenPlayer://x-callback-url/play?url=${encodedUrl}">跳转SenPlayer</a>
+  <a class="player-btn" style="background:#FF9800;" href="stay://x-callback-url/open-download?url=${encodedUrl}">跳转Stay下载</a>
 </div>
 `;
 
-  // 不破坏原结构：挂载到 content 或 description
-  if (obj.content && typeof obj.content === "string") {
-    obj.content = html + obj.content;
-  } else {
-    obj._ui_html = html;
-  }
-}
+      // ===== 原版UI注入方式（完全保留逻辑）=====
+      if (obj.content.includes("<body>")) {
+        obj.content = obj.content.replace("<body>", "<body>" + buttonHTML);
+      } else {
+        obj.content = buttonHTML + obj.content;
+      }
 
-// =========================
-// 主流程（严格原版状态机）
-// =========================
-try {
-  let w = JSON.parse(x);
+      // ===== 原版按钮替换逻辑（保留）=====
+      obj.content = obj.content.replace(
+        /<span class="sell-btn"[^>]*>[\s\S]*?<\/span><\/span>/g,
+        `<a href="SenPlayer://x-callback-url/play?url=${encodedUrl}"
+        style="display:inline-block;background:#0066cc;color:white;padding:6px 24px;border-radius:3px;text-decoration:none;">
+        点击观看完整视频</a>`
+      );
+    }
 
-  if (!w.data || !url.includes("/api/topic/")) {
+    // ======================
+    // 5. 原版三重编码（不动）
+    // ======================
+    w.data = E(E(E(JSON.stringify(obj))));
+
+    $done({ body: JSON.stringify(w) });
+
+  } catch (e) {
+    console.log("fusion error:", e);
     $done({ body: x });
-    return;
   }
-
-  // ===== ① 解密 =====
-  let data = decode3(w.data);
-  if (!data) {
-    $done({ body: x });
-    return;
-  }
-
-  // ===== ② unlock =====
-  unlock(data);
-
-  if (data.sale) {
-    data.sale.is_buy = true;
-    data.sale.buy_index = 9999;
-  }
-
-  // ===== ③ 视频提取 =====
-  let video = null;
-  if (data.attachments && Array.isArray(data.attachments)) {
-    video = data.attachments.find(v =>
-      v.category === "video" &&
-      v.remoteUrl &&
-      v.remoteUrl.includes(".m3u8")
-    );
-  }
-
-  let videoUrl = video ? video.remoteUrl : null;
-
-  // ===== ④ UI 注入（关键：只改展示层，不动 data 编码）=====
-  injectUI(data, videoUrl);
-
-  // ===== ⑤ 编码（原版状态机终点）=====
-  let enc = encode3(data);
-  w.data = enc;
-
-  $done({ body: JSON.stringify(w) });
-
-} catch (e) {
-  console.log("fusion error:", e);
-  $done({ body: x });
-}
+})();
