@@ -9,7 +9,7 @@
  * 2025-04-04
 #!name=海角
 [rewrite_local]
-^https?:\/\/haijiao\.com\/api\/(topic\/\d+|banner\/banner_list)$ url script-response-body https://gist.githubusercontent.com/yecrybaby/0530122ceafdbca653ab21652a30663e/raw/haijiao.js
+^https?:\/\/haijiao\.com\/api\/(topic\/\d+|banner\/banner_list)$ url script-response-body https://raw.githubusercontent.com/yecrybaby/haijiaonew/refs/heads/main/haijiaonew.js
 
 [mitm]
 hostname = haijiao.com
